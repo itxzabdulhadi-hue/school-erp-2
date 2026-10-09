@@ -19,8 +19,6 @@ local-first app; migrating it onto the API is tracked as roadmap.
 
 ## Web ERP quick start
 
-## Quick start
-
 ```bash
 npm install
 npm run dev      # development server → http://localhost:5173
