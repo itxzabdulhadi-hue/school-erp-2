@@ -1,0 +1,819 @@
+openapi: 3.0.3
+info:
+  title: School ERP API
+  version: 1.0.0
+  description: >-
+    Backend for the School ERP mobile apps. All responses use `{data}` /
+    `{error:{code,message,details}}` envelopes. Dates are YYYY-MM-DD.
+servers:
+  - url: http://localhost:4000/api/v1
+security:
+  - bearerAuth: []
+tags:
+  - name: auth
+  - name: school
+  - name: people
+  - name: academics
+  - name: attendance
+  - name: finance
+  - name: homework
+  - name: comms
+  - name: documents
+paths:
+  /auth/login:
+    post:
+      tags: [auth]
+      security: []
+      summary: Sign in with email + password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+                schoolSlug: { type: string, description: Required when the email exists in several schools }
+                deviceLabel: { type: string }
+      responses:
+        '200':
+          description: Session payload
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      accessToken: { type: string }
+                      refreshToken: { type: string }
+                      user: { $ref: '#/components/schemas/User' }
+                      permissions: { type: array, items: { type: string } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /auth/refresh:
+    post:
+      tags: [auth]
+      security: []
+      summary: Rotate a refresh token (single use)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken: { type: string }
+      responses:
+        '200': { description: New session payload (same shape as login) }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /auth/logout:
+    post:
+      tags: [auth]
+      security: []
+      summary: Revoke a refresh token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken: { type: string }
+      responses:
+        '200': { description: Revoked }
+  /auth/me:
+    get:
+      tags: [auth]
+      summary: Current user + permissions
+      responses:
+        '200': { description: '{data:{user,permissions}}' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /school/public:
+    get:
+      tags: [school]
+      security: []
+      summary: Public branding bootstrap for white-label apps
+      parameters:
+        - in: query
+          name: slug
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: '{data:PublicBrand}' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /school:
+    get:
+      tags: [school]
+      summary: Full school settings (grading scale, toggles)
+      responses:
+        '200': { description: '{data:FullSchool}' }
+
+  /students:
+    get:
+      tags: [people]
+      summary: List students (students are scoped to self)
+      parameters:
+        - in: query
+          name: classId
+          schema: { type: string }
+        - in: query
+          name: sectionId
+          schema: { type: string }
+        - in: query
+          name: status
+          schema: { type: string }
+        - in: query
+          name: search
+          schema: { type: string }
+      responses:
+        '200': { description: '{data:Student[]}' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [people]
+      summary: Admit a student (students.create)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [firstName, lastName, classId]
+              properties:
+                firstName: { type: string }
+                lastName: { type: string }
+                classId: { type: string }
+                sectionId: { type: string, nullable: true }
+                gender: { type: string }
+                dob: { type: string, format: date }
+                rollNo: { type: string }
+                phone: { type: string }
+                email: { type: string }
+                address: { type: string }
+                guardian: { type: object }
+                status: { type: string, enum: [active, inactive, alumni, suspended] }
+      responses:
+        '201': { description: '{data:Student}' }
+        '422': { $ref: '#/components/responses/Validation' }
+  /students/{id}:
+    get:
+      tags: [people]
+      summary: Student profile (students scoped to self)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: '{data:Student}' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [people]
+      summary: Update a student (students.edit)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: '{data:Student}' }
+  /teachers:
+    get:
+      tags: [people]
+      summary: List teachers (teachers.view)
+      responses:
+        '200': { description: '{data:Teacher[]}' }
+  /teachers/{id}:
+    get:
+      tags: [people]
+      summary: Teacher detail
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: '{data:Teacher}' }
+  /staff:
+    get:
+      tags: [people]
+      summary: List staff (staff.view)
+      responses:
+        '200': { description: '{data:Staff[]}' }
+  /staff/{id}:
+    get:
+      tags: [people]
+      summary: Staff detail
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: '{data:Staff}' }
+  /users:
+    get:
+      tags: [people]
+      summary: List login users (admin)
+      responses:
+        '200': { description: '{data:User[]}' }
+    post:
+      tags: [people]
+      summary: Provision a user (admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email, password, role]
+              properties:
+                name: { type: string }
+                email: { type: string, format: email }
+                password: { type: string, minLength: 8 }
+                role: { type: string, enum: [admin, teacher, student, staff] }
+                linkedStudentId: { type: string, nullable: true }
+                linkedTeacherId: { type: string, nullable: true }
+                linkedStaffId: { type: string, nullable: true }
+      responses:
+        '201': { description: '{data:User}' }
+  /users/{id}:
+    patch:
+      tags: [people]
+      summary: Update role/status/links/password (admin)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: '{data:User}' }
+
+  /classes:
+    get:
+      tags: [academics]
+      summary: Classes with sections
+      responses:
+        '200': { description: '{data:Class[]}' }
+  /subjects:
+    get:
+      tags: [academics]
+      summary: Subjects, optionally with teacher assignments for a class
+      parameters:
+        - in: query
+          name: classId
+          schema: { type: string }
+      responses:
+        '200': { description: '{data:Subject[]}' }
+  /timetable:
+    get:
+      tags: [academics]
+      summary: Timetable slots (students forced to own class; mine=1 for teachers)
+      parameters:
+        - in: query
+          name: classId
+          schema: { type: string }
+        - in: query
+          name: sectionId
+          schema: { type: string }
+        - in: query
+          name: teacherId
+          schema: { type: string }
+        - in: query
+          name: mine
+          schema: { type: string, enum: ['1'] }
+      responses:
+        '200': { description: '{data:TimetableSlot[]} (dayOfWeek Mon=1..Sun=7)' }
+  /exams:
+    get:
+      tags: [academics]
+      summary: List exams
+      responses:
+        '200': { description: '{data:Exam[]}' }
+    post:
+      tags: [academics]
+      summary: Create an exam (admin)
+      responses:
+        '201': { description: '{data:{id}}' }
+  /exams/{id}:
+    get:
+      tags: [academics]
+      summary: Exam with date-sheet schedules
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+        - in: query
+          name: classId
+          schema: { type: string }
+      responses:
+        '200': { description: '{data:Exam & {schedules}}' }
+  /exam-schedules:
+    post:
+      tags: [academics]
+      summary: Schedule one paper (admin)
+      responses:
+        '201': { description: '{data:{id}}' }
+        '409': { description: Duplicate exam/class/subject }
+  /results:
+    get:
+      tags: [academics]
+      summary: Computed result rows with grades, ranks, class stats
+      parameters:
+        - in: query
+          name: examId
+          required: true
+          schema: { type: string }
+        - in: query
+          name: classId
+          schema: { type: string }
+        - in: query
+          name: studentId
+          schema: { type: string }
+      responses:
+        '200': { description: '{data:{exam,classId,rows,stats}}' }
+  /marks:
+    post:
+      tags: [academics]
+      summary: Upsert one mark (results.create; validates max + class membership)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [scheduleId, studentId, obtainedMarks]
+              properties:
+                scheduleId: { type: string }
+                studentId: { type: string }
+                obtainedMarks: { type: number, minimum: 0 }
+                isAbsent: { type: boolean }
+                remarks: { type: string }
+      responses:
+        '201': { description: '{data:{ok:true}}' }
+        '422': { $ref: '#/components/responses/Validation' }
+  /marks/bulk:
+    post:
+      tags: [academics]
+      summary: Upsert a whole schedule's marks atomically
+      responses:
+        '201': { description: '{data:{saved}}' }
+
+  /attendance:
+    get:
+      tags: [attendance]
+      summary: Day sheet for a class (staff roles)
+      parameters:
+        - in: query
+          name: date
+          required: true
+          schema: { type: string, format: date }
+        - in: query
+          name: classId
+          schema: { type: string }
+        - in: query
+          name: sectionId
+          schema: { type: string }
+        - in: query
+          name: subjectId
+          schema: { type: string }
+      responses:
+        '200': { description: '{data:AttendanceRow[]}' }
+  /attendance/me:
+    get:
+      tags: [attendance]
+      summary: Signed-in student's history + summary
+      parameters:
+        - in: query
+          name: from
+          schema: { type: string, format: date }
+        - in: query
+          name: to
+          schema: { type: string, format: date }
+      responses:
+        '200': { description: '{data:{records,summary}} (pct excludes excused/leave)' }
+  /attendance/summary:
+    get:
+      tags: [attendance]
+      summary: Summary for one student over a range
+      parameters:
+        - in: query
+          name: studentId
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: '{data:AttendanceSummary}' }
+  /attendance/bulk:
+    post:
+      tags: [attendance]
+      summary: Save a day sheet atomically (replaces the scope)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [date, classId, records]
+              properties:
+                date: { type: string, format: date }
+                classId: { type: string }
+                sectionId: { type: string, nullable: true }
+                subjectId: { type: string, nullable: true }
+                records:
+                  type: array
+                  items:
+                    type: object
+                    required: [studentId, status]
+                    properties:
+                      studentId: { type: string }
+                      status: { type: string, enum: [present, absent, late, excused, leave, half-day] }
+                      remarks: { type: string }
+      responses:
+        '201': { description: '{data:{saved}}' }
+
+  /fee-types:
+    get:
+      tags: [finance]
+      summary: List fee types
+      responses:
+        '200': { description: '{data:FeeType[]}' }
+    post:
+      tags: [finance]
+      summary: Create a fee type (admin)
+      responses:
+        '201': { description: '{data:{id}}' }
+  /invoices:
+    get:
+      tags: [finance]
+      summary: List invoices (students forced to self)
+      parameters:
+        - in: query
+          name: studentId
+          schema: { type: string }
+        - in: query
+          name: status
+          schema: { type: string }
+      responses:
+        '200': { description: '{data:Invoice[]} (includes balance)' }
+    post:
+      tags: [finance]
+      summary: Create an invoice with lines (admin; totals computed server-side)
+      responses:
+        '201': { description: '{data:{id}}' }
+  /invoices/{id}:
+    get:
+      tags: [finance]
+      summary: Invoice with lines + payments
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: '{data:Invoice}' }
+    patch:
+      tags: [finance]
+      summary: Adjust due date/notes/discount or cancel (admin)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: '{data:{ok:true}}' }
+  /payments:
+    get:
+      tags: [finance]
+      summary: List payments (students forced to self)
+      responses:
+        '200': { description: '{data:Payment[]}' }
+    post:
+      tags: [finance]
+      summary: Record a payment (admin; rejects overpayment; updates invoice in-tx)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [invoiceId, amount]
+              properties:
+                invoiceId: { type: string }
+                amount: { type: number, exclusiveMinimum: 0 }
+                method: { type: string, enum: [cash, bank, card, online, cheque, other] }
+                reference: { type: string }
+                paymentDate: { type: string, format: date }
+                receivedBy: { type: string }
+                notes: { type: string }
+      responses:
+        '201': { description: '{data:{id,receiptNo,newPaid,status}}' }
+        '422': { $ref: '#/components/responses/Validation' }
+  /receipts/{paymentId}:
+    get:
+      tags: [finance]
+      summary: Full receipt payload (payment + invoice + student + school)
+      parameters:
+        - in: path
+          name: paymentId
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: '{data:Receipt}' }
+
+  /homework:
+    get:
+      tags: [homework]
+      summary: List homework (students forced to own class)
+      responses:
+        '200': { description: '{data:Homework[]}' }
+    post:
+      tags: [homework]
+      summary: Assign homework (homework.create)
+      responses:
+        '201': { description: '{data:{id}}' }
+  /homework/{id}:
+    get:
+      tags: [homework]
+      summary: Homework detail (+mySubmission for students)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: '{data:Homework}' }
+    patch:
+      tags: [homework]
+      summary: Edit own homework (assigning teacher or admin)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: '{data:{ok:true}}' }
+  /homework/{id}/attachment:
+    post:
+      tags: [homework]
+      summary: Attach a file (multipart field `file`)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '201': { description: '{data:{ok:true}}' }
+    get:
+      tags: [homework]
+      summary: Download the attachment (permission-checked)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: File bytes }
+  /homework/{id}/submissions:
+    get:
+      tags: [homework]
+      summary: Submissions (teachers see all; students see own)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: '{data:Submission[]}' }
+    post:
+      tags: [homework]
+      summary: Submit homework (students; multipart text and/or `file`)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '201': { description: '{data:{ok:true}}' }
+  /submissions/{id}:
+    patch:
+      tags: [homework]
+      summary: Review a submission (feedback/score/status)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: '{data:{ok:true}}' }
+  /submissions/{id}/file:
+    get:
+      tags: [homework]
+      summary: Download a submission file (owner teachers or own)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: File bytes }
+  /materials:
+    get:
+      tags: [homework]
+      summary: List study materials
+      responses:
+        '200': { description: '{data:Material[]}' }
+    post:
+      tags: [homework]
+      summary: Share a material (multipart `file` and/or url)
+      responses:
+        '201': { description: '{data:{id}}' }
+  /materials/{id}/download:
+    get:
+      tags: [homework]
+      summary: Download material file
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: File bytes }
+
+  /announcements:
+    get:
+      tags: [comms]
+      summary: Announcements visible to the caller's role
+      responses:
+        '200': { description: '{data:Announcement[]}' }
+    post:
+      tags: [comms]
+      summary: Publish (announcements.create)
+      responses:
+        '201': { description: '{data:{id}}' }
+  /announcements/{id}:
+    delete:
+      tags: [comms]
+      summary: Delete own announcement (or any, as admin)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: '{data:{ok:true}}' }
+  /events:
+    get:
+      tags: [comms]
+      summary: Events (optional from/to)
+      responses:
+        '200': { description: '{data:Event[]}' }
+    post:
+      tags: [comms]
+      summary: Create an event (admin)
+      responses:
+        '201': { description: '{data:{id}}' }
+  /notifications:
+    get:
+      tags: [comms]
+      summary: Inbox + unread count
+      responses:
+        '200': { description: '{data:{items,unreadCount}}' }
+  /notifications/{id}/read:
+    post:
+      tags: [comms]
+      summary: Mark one read
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: '{data:{ok:true}}' }
+  /notifications/read-all:
+    post:
+      tags: [comms]
+      summary: Mark all read
+      responses:
+        '200': { description: '{data:{ok:true}}' }
+  /notifications/broadcast:
+    post:
+      tags: [comms]
+      summary: Admin broadcast (+best-effort push fan-out)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title: { type: string }
+                body: { type: string }
+                audience: { type: string, enum: [all, admin, teacher, student, staff] }
+                kind: { type: string }
+                link: { type: string }
+      responses:
+        '201': { description: '{data:{delivered}}' }
+  /devices:
+    post:
+      tags: [comms]
+      summary: Register/update a push token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [pushToken]
+              properties:
+                pushToken: { type: string }
+                platform: { type: string }
+      responses:
+        '201': { description: '{data:{ok:true}}' }
+    delete:
+      tags: [comms]
+      summary: Remove a push token (?pushToken=)
+      responses:
+        '200': { description: '{data:{ok:true}}' }
+
+  /documents:
+    get:
+      tags: [documents]
+      summary: List documents (students see school-wide + own)
+      responses:
+        '200': { description: '{data:Document[]}' }
+    post:
+      tags: [documents]
+      summary: Upload with metadata (multipart `file` + ownerType/title/…)
+      responses:
+        '201': { description: '{data:{id}}' }
+  /documents/{id}/download:
+    get:
+      tags: [documents]
+      summary: Download (permission-checked)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: File bytes }
+  /documents/{id}:
+    delete:
+      tags: [documents]
+      summary: Delete (uploader or admin)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: '{data:{ok:true}}' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    User:
+      type: object
+      properties:
+        id: { type: string }
+        schoolId: { type: string }
+        name: { type: string }
+        email: { type: string }
+        role: { type: string, enum: [admin, teacher, student, staff] }
+        linkedStudentId: { type: string, nullable: true }
+        linkedTeacherId: { type: string, nullable: true }
+        linkedStaffId: { type: string, nullable: true }
+  responses:
+    Unauthorized:
+      description: Missing/invalid/expired token
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: object
+                properties:
+                  code: { type: string, example: UNAUTHENTICATED }
+                  message: { type: string }
+    Forbidden:
+      description: Authenticated but lacking permission (names it)
+    NotFound:
+      description: Unknown id or slug
+    Validation:
+      description: zod validation details
+    RateLimited:
+      description: Too many login attempts
